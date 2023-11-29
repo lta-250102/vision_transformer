@@ -18,11 +18,11 @@ training Vision Transformer for image classification on several datasets (MNIST,
 
 ```bash
 # clone project
-git clone https://github.com/YourGithubName/your-repo-name
-cd your-repo-name
+git clone https://github.com/lta-250102/vision_transformer
+cd vision_transformer
 
 # [OPTIONAL] create conda environment
-conda create -n myenv python=3.9
+conda create -n myenv python=3.11.3
 conda activate myenv
 
 # install requirements
@@ -62,7 +62,7 @@ Train model with default configuration
 # train on CPU
 python src/train.py trainer=cpu
 
-# train on GPU
+# train on GPU after make sure system support CUDA
 python src/train.py trainer=gpu
 ```
 
