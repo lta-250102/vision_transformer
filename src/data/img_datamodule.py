@@ -3,7 +3,7 @@ from torch.utils.data import DataLoader, Dataset
 from sklearn.model_selection import train_test_split
 from torchvision import transforms
 import numpy as np
-from torchvision.datasets import MNIST, ImageNet, CIFAR100
+from torchvision.datasets import MNIST, ImageNet, CIFAR10, CIFAR100
 
 
 class ImgDataset(Dataset):
@@ -34,10 +34,11 @@ class MyDataModule(LightningDataModule):
         super().__init__()
         self.dataset_to_down = MNIST if dataset_to_down == 'mnist' \
             else ImageNet if dataset_to_down == 'imagenet' \
+            else CIFAR10 if dataset_to_down == 'cifar10' \
             else CIFAR100 if dataset_to_down == 'cifar100' \
             else None
         if self.dataset_to_down is None:
-            raise ValueError("dataset_to_down must be 'mnist', 'imagenet' or 'cifar100'")
+            raise ValueError("dataset_to_down must be 'mnist', 'imagenet' or 'cifar10' or 'cifar100'")
         self.data_dir = data_dir
         self.batch_size = batch_size
         self.transform = transforms.Compose([

@@ -1,3 +1,5 @@
+from torchvision.models import vit_b_16, vit_b_32, vit_l_16, vit_l_32, vit_h_14
+from transformers import ViTForImageClassification, BitForImageClassification, ViTHybridForImageClassification
 from typing import Any
 from lightning import LightningModule
 import torch
@@ -74,13 +76,15 @@ class ViTModule(LightningModule):
         '''
         super().__init__()
         self.learing_rate = learning_rate
-        self.patch_size = patch_size # (16, 16)
-        nh, nw = img_size[0] // patch_size[0], img_size[1] // patch_size[1] # (14, 14)
-        n_tokens = nh * nw # 196
-        token_dim = patch_size[0] * patch_size[1] * n_channels # 768
-        self.first_linear = nn.Linear(token_dim, d_model) # (768, 512)
-        self.cls_token = nn.Parameter(torch.randn(1, d_model)) # (1, 512)
-        self.pos_emb = nn.Parameter(get_positional_embeddings(n_tokens, d_model)) # (196, 512)
+        # self.patch_size = patch_size # (16, 16)
+        # nh, nw = img_size[0] // patch_size[0], img_size[1] // patch_size[1] # (14, 14)
+        # n_tokens = nh * nw # 196
+        # token_dim = patch_size[0] * patch_size[1] * n_channels # 768
+        # self.first_linear = nn.Linear(token_dim, d_model) # (768, 512)
+        # self.cls_token = nn.Parameter(torch.randn(1, d_model)) # (1, 512)
+        # self.pos_emb = nn.Parameter(get_positional_embeddings(n_tokens, d_model)) # (196, 512)
+
+        self.patch_emb = nn.Conv2d(n_channels, d_model, kernel_size=patch_size, stride=patch_size) # (3, 512, (16, 16), (16, 16))
 
         encoder_layer = nn.TransformerEncoderLayer(
             d_model, nhead, dim_feedforward, activation="gelu", batch_first=True
@@ -90,7 +94,7 @@ class ViTModule(LightningModule):
         )
         self.mlp = get_mlp(d_model, mlp_head_units, n_classes) # (512, [1024, 512], n_classes)
 
-        self.classifer = nn.Sigmoid() if n_classes == 1 else nn.Softmax()
+        # self.classifer = nn.Sigmoid() if n_classes == 1 else nn.Softmax()
         # self.criteria = nn.CrossEntropyLoss()
 
         self.train_accuracy = []
@@ -106,19 +110,21 @@ class ViTModule(LightningModule):
             input: (b, c, h, w)
             output: (b, n_classes)
         """
-        # batch = self.img2seq(batch) # (b, s, d)
-        batch = torch.permute(batch, (0, 2, 3, 1)) # (b, h, w, c) = (b, 224, 224, 3)
-        batch = patchify(batch, self.patch_size) # (b, nh*nw, ph*pw*c) = (b, 196, 768)
-        b = batch.shape[0]
-        batch = self.first_linear(batch) # (b, nh*nw, d_model) = (b, 196, 512)
-        cls = self.cls_token.expand([b, -1, -1]) # (b, 1, d_model) = (b, 1, 512)
-        emb = batch + self.pos_emb # (b, nh*nw, d_model) = (b, 196, 512)
-        batch = torch.cat([cls, emb], axis=1) # (b, nh*nw+1, d_model) = (b, 197, 512)
+        # batch = torch.permute(batch, (0, 2, 3, 1)) # (b, h, w, c) = (b, 224, 224, 3)
+        # batch = patchify(batch, self.patch_size) # (b, nh*nw, ph*pw*c) = (b, 196, 768)
+        # b = batch.shape[0]
+        # batch = self.first_linear(batch) # (b, nh*nw, d_model) = (b, 196, 512)
+        # cls = self.cls_token.expand([b, -1, -1]) # (b, 1, d_model) = (b, 1, 512)
+        # emb = batch + self.pos_emb # (b, nh*nw, d_model) = (b, 196, 512)
+        # batch = torch.cat([cls, emb], axis=1) # (b, nh*nw+1, d_model) = (b, 197, 512)
+
+        batch = self.patch_emb(batch) # (b, d_model, nh, nw) = (b, 512, 14, 14)
+        batch = batch.flatten(2).transpose(1, 2) # (b, nh*nw, d_model) = (b, 196, 512)
 
         batch = self.transformer_encoder(batch) # (b, s, d)
         batch = batch[:, 0, :] # (b, d)
-        batch = self.mlp(batch) # (b, n_classes)
-        output = self.classifer(batch) # (b, n_classes)
+        output = self.mlp(batch) # (b, n_classes)
+        # output = self.classifer(batch) # (b, n_classes)
         return output
 
     def training_step(self, batch, batch_idx: int):
@@ -173,16 +179,54 @@ class ViTModule(LightningModule):
         self.test_loss = []
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.learing_rate)
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.learing_rate)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, verbose=True)
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "monitor": "val_loss",
+                "interval": "epoch",
+                "frequency": 1,
+            },
+        }
 
 class ViTPretrainedModule(LightningModule):
-    def __init__(self, model, learning_rate: float, source: str = 'pytorch', n_classes: int = None, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, model: str, learning_rate: float, n_classes: int = None, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self.source = source
         self.learing_rate = learning_rate
-        self.model = model
-        if n_classes is not None and source == 'pytorch':
+        try:
+            print('Loading model ...')
+            self.model = vit_b_16(pretrained=True) if model == 'vit_b_16' else \
+                vit_b_32(pretrained=True) if model == 'vit_b_32' else \
+                vit_l_16(pretrained=True) if model == 'vit_l_16' else \
+                vit_l_32(pretrained=True) if model == 'vit_l_32' else \
+                vit_h_14(pretrained=True) if model == 'vit_h_14' else \
+                ViTForImageClassification.from_pretrained('google/' + model) if model in ['vit-base-patch16-224-in21k'] else \
+                BitForImageClassification.from_pretrained('google/' + model) if model in ['bit-50'] else \
+                ViTHybridForImageClassification.from_pretrained('google/' + model) if model in ['vit-hybrid-base-bit-384'] else \
+                None
+            assert self.model is not None
+            print('Model loaded successfully')
+        except Exception as e:
+            print('Model not found')
+            raise e
+
+        # Freeze the model
+        for param in self.model.parameters():
+            param.requires_grad = False
+
+        # Replace the last layer
+        if isinstance(self.model, ViTForImageClassification) or isinstance(self.model, ViTHybridForImageClassification):
+            self.model.classifier = nn.Linear(self.model.classifier.in_features, n_classes)
+            self.source = 'huggingface'
+        elif isinstance(self.model, BitForImageClassification):
+            self.model.classifier[1] = nn.Linear(self.model.classifier[1].in_features, n_classes)
+            self.source = 'huggingface'
+        elif model in ['vit_b_32', 'vit_b_16', 'vit_l_32', 'vit_l_16', 'vit_h_14']:
             self.model.heads = nn.Linear(self.model.heads.head.in_features, n_classes)
+            self.source = 'torchvision'
+
         self.criteria = nn.CrossEntropyLoss()
 
         self.train_accuracy = []

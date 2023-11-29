@@ -29,9 +29,7 @@ conda activate myenv
 pip install -r requirements.txt
 ```
 
-## How to train
-
-#### Configure your experiment
+## Configure your experiment
 
 Data configuration is located in [configs/data/vit](configs/data/vit.yaml)
 
@@ -56,7 +54,25 @@ n_channels: 3 # with mnist is 1
 d_model: int
 ```
 
-Train model with default configuration
+Model fine-tuning configuration is located in [configs/model/vit_fine_tune](configs/model/vit_fine_tune.yaml)
+
+```yaml
+learning_rate: float
+model: str # name of to download
+n_classes: int # base on dataset
+```
+
+Model to download supported for config fine-tuning: 
+- pytorch: vit_b_16, vit_b_32, vit_l_16, vit_l_32, vit_h_14
+- huggingface: 
+  - vit-base-patch16-224-in21k: VIT-pretrained-ImageNet1k
+  - bit-50: BIT-pretrained-ImageNet1k
+  - vit-hybrid-base-bit-384: VIT_Hybrid-pretrained-ImageNet1k
+
+
+## How to train
+
+#### Train model with default configuration
 
 ```bash
 # train on CPU
@@ -64,6 +80,16 @@ python src/train.py trainer=cpu
 
 # train on GPU after make sure system support CUDA
 python src/train.py trainer=gpu
+```
+
+#### Fine-tuning 
+
+```bash
+# train on CPU
+python src/train.py trainer=cpu model=vit_fine_tune
+
+# train on GPU after make sure system support CUDA
+python src/train.py trainer=gpu model=vit_fine_tune
 ```
 
 You can override any parameter from command line like this
