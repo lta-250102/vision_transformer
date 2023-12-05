@@ -43,7 +43,10 @@ class MyDataModule(LightningDataModule):
         self.batch_size = batch_size
         self.transform = transforms.Compose([
             transforms.ToPILImage(),
-            transforms.Resize(img_size),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomVerticalFlip(),
+            transforms.RandomRotation(20),
+            transforms.RandomResizedCrop(size=img_size, antialias=True),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.255]),
         ]) if dataset_to_down != 'mnist' else None
